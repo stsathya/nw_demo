@@ -1,0 +1,78 @@
+parameters:
+- name: whatIf
+  displayName: "What IF deployment"
+  type: boolean
+  default: false
+# Subscription
+- name: subscriptionConnection
+  type: string
+  default: ''
+
+# FunctionApp
+- name: resourceGroupName
+  type: string
+  default: ''
+- name: location
+  type: string
+  default: ''
+- name: appName
+  type: string
+  default: ''
+- name: sqlServer
+  type: string
+  default: ''
+- name: sqlServerDomain
+  type: string
+  default: ''
+- name: adminUsername
+  type: string
+  default: ''
+- name: keyvaultName
+  type: string
+  default: ''
+
+steps:
+  - task: AzurePowershell@5
+    displayName: 'Create Function App: ${{parameters.appName}}'
+    inputs:
+      ConnectedServiceNameARM: '${{parameters.subscriptionConnection}}'
+      ScriptType: 'InlineScript'
+      Inline: |
+        Write-Output "WhatIf: ${{parameters.whatIf}}"
+        $whatIf = [System.Convert]::ToBoolean('${{parameters.whatIf}}')
+        $sqlPass = Get-AzKeyVaultSecret -VaultName ${{parameters.keyvaultName}} -Name ${{parameters.adminUsername}}-Password -AsPlainText
+        
+        $params = @{
+          location = '${{parameters.location}}'
+          appName = '${{parameters.appName}}'
+          sqlServer = '${{parameters.sqlServer}}'
+          adminUsername = '${{parameters.adminUsername}}'
+          adminPassword = $sqlPass
+          sqlServerDomain = '${{parameters.sqlServerDomain}}'
+        }
+        Write-Output "Creating Function App: '${{parameters.appName}}' into '${{parameters.resourceGroupName}}' RG using params:"
+        #$params.GetEnumerator() | sort Name | ft -a
+
+        if ($whatIf){
+          Write-Output "WHAT IF Deployment"
+          New-AzResourceGroupDeployment `
+                -Name "$(Get-Date -Format yyyyMMddhhmmss)-functionApp" `
+                -ResourceGroupName '${{parameters.resourceGroupName}}' `
+                -Mode Incremental `
+                -DeploymentDebugLogLevel ResponseContent `
+                -TemplateFile '$(Pipeline.Workspace)/NW-DEMO/InfraDeployment/Resources/FunctionApp/FunctionApp.bicep' `
+                -TemplateParameterObject $params `
+                -WhatIf `
+                -WhatIfExcludeChangeType NoChange,Ignore `
+                -WhatIfResultFormat FullResourcePayloads
+        }
+        else {
+          New-AzResourceGroupDeployment `
+              -Name "$(Get-Date -Format yyyyMMddhhmmss)-functionApp" `
+              -ResourceGroupName '${{parameters.resourceGroupName}}' `
+              -Mode Incremental `
+              -DeploymentDebugLogLevel ResponseContent `
+              -TemplateFile '$(Pipeline.Workspace)/NW-DEMO/InfraDeployment/Resources/FunctionApp/FunctionApp.bicep' `
+              -TemplateParameterObject $params
+        } 
+      azurePowerShellVersion: latestVersion

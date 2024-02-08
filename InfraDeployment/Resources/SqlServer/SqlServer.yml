@@ -1,0 +1,71 @@
+parameters:
+- name: whatIf
+  displayName: "What IF deployment"
+  type: boolean
+  default: false
+# Subscription
+- name: subscriptionConnection
+  type: string
+  default: ''
+
+# FunctionApp
+- name: resourceGroupName
+  type: string
+  default: ''
+- name: location
+  type: string
+  default: ''
+- name: sqlServerName
+  type: string
+  default: ''
+- name: adminLogin
+  type: string
+  default: ''
+- name: keyvaultName
+  type: string
+  default: ''
+
+steps:
+  - task: AzurePowershell@5
+    displayName: 'Create SQL Server: ${{parameters.sqlServerName}}'
+    inputs:
+      ConnectedServiceNameARM: '${{parameters.subscriptionConnection}}'
+      ScriptType: 'InlineScript'
+      Inline: |
+        Write-Output "WhatIf: ${{parameters.whatIf}}"
+        $whatIf = [System.Convert]::ToBoolean('${{parameters.whatIf}}')
+        $pass = -join ((33..126) | Get-Random -Count 32 | % {[char]$_})
+
+        $params = @{
+          location = '${{parameters.location}}'
+          sqlServerName = '${{parameters.sqlServerName}}'
+          adminLogin = '${{parameters.adminLogin}}'
+          adminPassword = $pass
+          keyvaultName = '${{parameters.keyvaultName}}'
+        }
+        Write-Output "Creating SQL Server: '${{parameters.sqlServerName}}' into '${{parameters.resourceGroupName}}' RG using params:"
+        #$params.GetEnumerator() | sort Name | ft -a
+
+        if ($whatIf){
+          Write-Output "WHAT IF Deployment"
+          New-AzResourceGroupDeployment `
+                -Name "$(Get-Date -Format yyyyMMddhhmmss)-sqlServer" `
+                -ResourceGroupName '${{parameters.resourceGroupName}}' `
+                -Mode Incremental `
+                -DeploymentDebugLogLevel ResponseContent `
+                -TemplateFile '$(Pipeline.Workspace)/NW-DEMO/InfraDeployment/Resources/SqlServer/SqlServer.bicep' `
+                -TemplateParameterObject $params `
+                -WhatIf `
+                -WhatIfExcludeChangeType NoChange,Ignore `
+                -WhatIfResultFormat FullResourcePayloads
+        }
+        else {
+          New-AzResourceGroupDeployment `
+              -Name "$(Get-Date -Format yyyyMMddhhmmss)-sqlServer" `
+              -ResourceGroupName '${{parameters.resourceGroupName}}' `
+              -Mode Incremental `
+              -DeploymentDebugLogLevel ResponseContent `
+              -TemplateFile '$(Pipeline.Workspace)/NW-DEMO/InfraDeployment/Resources/SqlServer/SqlServer.bicep' `
+              -TemplateParameterObject $params
+        }
+      azurePowerShellVersion: latestVersion

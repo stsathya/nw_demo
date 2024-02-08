@@ -1,0 +1,64 @@
+parameters:
+- name: whatIf
+  displayName: "What IF deployment"
+  type: boolean
+  default: false
+  
+  # Subscription
+- name: subscriptionConnection
+  type: string
+  default: ''
+
+# FunctionApp
+- name: resourceGroupName
+  type: string
+  default: ''
+- name: location
+  type: string
+  default: ''
+- name: frontDoorName
+  type: string
+  default: ''
+- name: hostName
+  type: string
+  default: ''
+
+steps:
+  - task: AzurePowershell@5
+    displayName: 'Create Front Door: ${{parameters.frontDoorName}}'
+    inputs:
+      ConnectedServiceNameARM: '${{parameters.subscriptionConnection}}'
+      ScriptType: 'InlineScript'
+      Inline: |
+        Write-Output "WhatIf: ${{parameters.whatIf}}"
+        $whatIf = [System.Convert]::ToBoolean('${{parameters.whatIf}}')
+        $params = @{
+          frontDoorName = '${{parameters.frontDoorName}}'
+          hostName = '${{parameters.hostName}}'
+        }
+        Write-Output "Creating Front Door: '${{parameters.frontDoorName}}' into '${{parameters.resourceGroupName}}' RG using params:"
+        $params.GetEnumerator() | sort Name | ft -a
+        if ($whatIf){
+          Write-Output "WHAT IF Deployment"
+          New-AzResourceGroupDeployment `
+              -Name "$(Get-Date -Format yyyyMMddhhmmss)-frontdoor" `
+              -ResourceGroupName '${{parameters.resourceGroupName}}' `
+              -Mode Incremental `
+              -DeploymentDebugLogLevel ResponseContent `
+              -TemplateFile '$(Pipeline.Workspace)/NW-DEMO/InfraDeployment/Resources/FrontDoor/FrontDoor.bicep' `
+              -TemplateParameterObject $params `
+              -WhatIf `
+              -WhatIfExcludeChangeType NoChange,Ignore `
+              -WhatIfResultFormat FullResourcePayloads
+        }
+        else{
+          New-AzResourceGroupDeployment `
+              -Name "$(Get-Date -Format yyyyMMddhhmmss)-frontdoor" `
+              -ResourceGroupName '${{parameters.resourceGroupName}}' `
+              -Mode Incremental `
+              -DeploymentDebugLogLevel ResponseContent `
+              -TemplateFile '$(Pipeline.Workspace)/NW-DEMO/InfraDeployment/Resources/FrontDoor/FrontDoor.bicep' `
+              -TemplateParameterObject $params
+        }
+        
+      azurePowerShellVersion: latestVersion

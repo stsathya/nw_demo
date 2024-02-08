@@ -1,0 +1,182 @@
+trigger:
+- main
+
+variables:
+  - group: dev-variables
+  - name: subscriptionConnection
+    value: $(subscription)
+
+parameters:
+- name: whatIf
+  displayName: "What IF deployment"
+  type: boolean
+  default: false
+- name: doDeployAppService
+  displayName: "Run Step: Deploy App service plan"
+  type: boolean
+  default: true
+- name: doDeploySqlServer
+  displayName: "Run Step: Deploy SQL Server"
+  type: boolean
+  default: true
+- name: doDeployFunctionApp
+  displayName: "Run Step: Deploy Function App"
+  type: boolean
+  default: true
+- name: doDeployFrontDoor
+  displayName: "Run Step: Deploy Front Door"
+  type: boolean
+  default: true
+
+stages:
+  - stage: Build
+    pool:
+      name: $(agentPoolName)
+      demands:
+      - agent.name -equals $(agentName)
+    jobs:
+      - job: Build
+        steps:       
+        - task: CopyFiles@2
+          inputs:
+            SourceFolder: '$(Build.SourcesDirectory)'
+            Contents: '**'
+            TargetFolder: "$(Build.ArtifactStagingDirectory)"
+
+        - task: PublishBuildArtifacts@1
+          inputs:
+            PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+            ArtifactName: 'nw-demo'
+            publishLocation: 'Container'
+    
+  - stage: Deploy
+    displayName: 'Bicep Template Deployment'
+    jobs:
+      - deployment:
+        pool:
+          name: $(agentPoolName)
+          demands:
+          - agent.name -equals $(agentName)
+        environment: 'Dev'
+        strategy:
+              runOnce:
+                deploy:
+                  steps:
+                    - task: SonarCloudPrepare@1
+                      inputs:
+                        SonarCloud: 'SonarCloudSecurity'
+                        organization: $(organization)
+                        scannerMode: 'CLI'
+                        configMode: 'manual'
+                        cliProjectKey: $(cliProjectKey)
+                        cliProjectName: $(cliProjectName)
+                        cliSources: '.' 
+                    - task: DownloadBuildArtifacts@1
+                      inputs:
+                        artifact: 'nw-demo'
+                        path: '$(Build.ArtifactStagingDirectory)'
+                    
+                    - task: powershell@2
+                      displayName: List Downloaded Artefacts
+                      inputs:
+                        targetType: inline
+                        script: |
+                          get-childitem -path "$(pipeline.workspace)" -recurse
+
+                    # Resource Group
+                    
+                    - template: ..\..\InfraDeployment\Resources\ResourceGroup\ResourceGroup.yml
+                      parameters:
+                        subscriptionConnection: ${{variables.subscriptionConnection}}
+                        resourceGroupName: $(resourceGroupName)
+                        location: $(location)
+
+                    - ${{ if eq(parameters.doDeployAppService, true) }}:
+                      - template: ..\..\InfraDeployment\Resources\AppServicePlan\AppServicePlan.yml
+                        parameters:
+                          whatIf: ${{parameters.whatIf}}
+                          subscriptionConnection: ${{variables.subscriptionConnection}}
+                          resourceGroupName: $(resourceGroupName)
+                          location: $(location)
+                          skuName: $(skuName)
+                          skuCapacity: $(skuCapacity)
+                          appName: $(appName)
+
+                    - ${{ if eq(parameters.doDeploySqlServer, true) }}:
+                      - template: ..\..\InfraDeployment\Resources\SqlServer\SqlServer.yml
+                        parameters:
+                          whatIf: ${{parameters.whatIf}}
+                          subscriptionConnection: ${{variables.subscriptionConnection}}
+                          resourceGroupName: $(resourceGroupName)
+                          location: $(location)
+                          sqlServerName: $(sqlServerName)
+                          adminLogin: $(adminLogin)
+                          keyvaultName: $(keyvaultName)
+
+                    - ${{ if eq(parameters.doDeployFunctionApp, true) }}:
+                      - template: ..\..\InfraDeployment\Resources\FunctionApp\FunctionApp.yml
+                        parameters:
+                          whatIf: ${{parameters.whatIf}}
+                          subscriptionConnection: ${{variables.subscriptionConnection}}
+                          resourceGroupName: $(resourceGroupName)
+                          location: $(location)
+                          appName: $(appName)
+                          sqlServer: $(sqlServerName)
+                          adminUsername: $(adminLogin)
+                          keyvaultName: $(keyvaultName)
+                          sqlServerDomain: $(sqlServerDomain)
+
+                    - ${{ if eq(parameters.doDeployFrontDoor, true) }}:
+                      - template: ..\..\InfraDeployment\Resources\FrontDoor\FrontDoor.yml
+                        parameters:
+                          whatIf: ${{parameters.whatIf}}
+                          subscriptionConnection: ${{variables.subscriptionConnection}}
+                          resourceGroupName: $(resourceGroupName)
+                          location: $(location)
+                          frontDoorName: $(frontDoorName)
+                          hostName: '$(appName).websites.net'
+                          
+                      - task: SonarCloudAnalyze@1
+                        inputs:
+                          jdkversion: 'JAVA_HOME_17_X64'
+                          
+  - stage: DeployFunction
+    displayName: Application Deployment
+    pool:
+      name: $(agentPoolName)
+      demands:
+      - agent.name -equals $(agentName)
+    jobs:
+      - job: Build
+        steps:
+          - task: SonarCloudPrepare@1
+            inputs:
+              SonarCloud: 'SonarCloudSecurity'
+              organization: $(organization)
+              scannerMode: 'CLI'
+              configMode: 'manual'
+              cliProjectKey: $(cliProjectKey)
+              cliProjectName: $(cliProjectName)
+              cliSources: '.' 
+          - task: DownloadBuildArtifacts@1
+            inputs:
+              artifact: 'nw-demo'
+              path: '$(Build.ArtifactStagingDirectory)'
+
+          - task: AzureFunctionApp@2
+            inputs:
+              connectedServiceNameARM: 'devopsTest'
+              appType: 'functionApp'
+              appName: $(appName)
+              package: '$(Build.ArtifactStagingDirectory)/**/*.zip'
+              deploymentMethod: 'auto'
+            
+          - task: SonarCloudAnalyze@1
+            inputs:
+              jdkversion: 'JAVA_HOME_17_X64'
+          
+          
+
+
+
+                    

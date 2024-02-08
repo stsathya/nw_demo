@@ -1,0 +1,50 @@
+parameters:
+- name: whatIf
+  displayName: "What IF deployment"
+  type: boolean
+  default: false
+
+# Subscription
+- name: subscriptionConnection
+  type: string
+  default: ''
+
+# Resource Group
+- name: resourceGroupName
+  type: string
+  default: ''
+- name: location
+  type: string
+  default: ''
+
+steps:
+  - task: AzurePowershell@5
+    displayName: 'Create Resource Group: ${{parameters.resourceGroupName}}'
+    inputs:
+      ConnectedServiceNameARM: '${{parameters.subscriptionConnection}}'
+      ScriptType: 'InlineScript'
+      Inline: |
+        Write-Output "WhatIf: ${{parameters.whatIf}}"
+        $whatIf = [System.Convert]::ToBoolean('${{parameters.whatIf}}')
+        $params = @{
+          resourceGroupName = '${{parameters.resourceGroupName}}'
+          location = '${{parameters.location}}'
+        }
+        Write-Output "Creating Resource Group: '${{parameters.resourceGroupName}}' using params:"
+        $params.GetEnumerator() | sort Name | ft -a
+
+        if ($whatIf){
+          Write-Output "WHAT IF Deployment"
+          New-AzDeployment -Location '${{parameters.location}}' `
+                -TemplateFile '$(Pipeline.Workspace)/NW-DEMO/InfraDeployment/Resources/ResourceGroup/ResourceGroup.bicep' `
+                -TemplateParameterObject $params `
+                -WhatIf `
+                -WhatIfExcludeChangeType NoChange,Ignore `
+                -WhatIfResultFormat FullResourcePayloads
+        }
+        else {
+          New-AzDeployment -Location '${{parameters.location}}' `
+              -TemplateFile '$(Pipeline.Workspace)/NW-DEMO/InfraDeployment/Resources/ResourceGroup/ResourceGroup.bicep' `
+              -TemplateParameterObject $params
+        }
+      azurePowerShellVersion: latestVersion
